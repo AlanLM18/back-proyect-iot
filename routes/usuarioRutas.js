@@ -113,18 +113,11 @@ router.delete("/usuarios/:id", async (req, res) => {
   }
 });
 
-// Ruta para registrar medicamentos
-router.post("/mqtt/programar", async (req, res) => {
+// Ruta para registrar medicamentos - recibe usuarioId como parámetro
+router.post("/mqtt/programar/:usuarioId", async (req, res) => {
   try {
-    // Asegúrate de que el usuario esté autenticado (puedes usar una función middleware)
-    const respuesta = await usuarioAutorizado(req.cookies.token, req); // Se extrae el usuario del token
-    
-    if (respuesta.status !== 200) {
-      return res.status(400).json({ error: "Usuario no autorizado" });
-    }
-
-    // Extraemos el usuarioId del token (lo tenemos en req.usuario)
-    const usuarioId = req.usuario.id; 
+    // Obtener el usuarioId desde los parámetros de la URL
+    const { usuarioId } = req.params;
 
     // Obtén los datos del medicamento desde el cuerpo de la solicitud
     const { fechaInicio, fechaFin, hora, compartimiento, cantidad, nombre } = req.body;
@@ -134,18 +127,23 @@ router.post("/mqtt/programar", async (req, res) => {
       return res.status(400).json({ error: "Todos los campos son obligatorios" });
     }
 
+    // Validar que usuarioId esté presente
+    if (!usuarioId) {
+      return res.status(400).json({ error: "El ID del usuario es requerido" });
+    }
+
     // Validar que la cantidad sea un número positivo
     if (isNaN(cantidad) || cantidad <= 0) {
       return res.status(400).json({ error: "La cantidad debe ser un número positivo" });
     }
 
-    // Validar si el compartimento ya está ocupado
+    // Validar si el compartimento ya está ocupado para este usuario
     const compartimentoOcupado = await Medicamento.findOne({ usuarioId, compartimiento });
     if (compartimentoOcupado) {
       return res.status(400).json({ error: "El compartimento ya está ocupado con un medicamento." });
     }
 
-    // Agregar el usuarioId automáticamente
+    // Crear el objeto con los datos del medicamento
     const datosMedicamento = { 
       fechaInicio, 
       fechaFin, 
@@ -153,11 +151,11 @@ router.post("/mqtt/programar", async (req, res) => {
       compartimiento, 
       cantidad, 
       nombre, 
-      usuarioId  // Se agrega el ID del usuario automáticamente
+      usuarioId  // Se agrega el ID del usuario desde los parámetros
     };
 
     // Publicar los datos en MQTT
-    const mqttPromise = publicarMedicamento(datosMedicamento); // Asumiendo que esta función devuelve una promesa
+    const mqttPromise = publicarMedicamento(datosMedicamento);
 
     // Guardar el medicamento en la base de datos
     const nuevoMedicamento = new Medicamento(datosMedicamento);
@@ -173,19 +171,16 @@ router.post("/mqtt/programar", async (req, res) => {
   }
 });
 
-
-// Nueva ruta para obtener los medicamentos del usuario autenticado organizados por compartimiento
-router.get("/medicamentosUsuario", async (req, res) => {
+// Ruta para obtener los medicamentos del usuario organizados por compartimiento
+router.get("/medicamentosUsuario/:usuarioId", async (req, res) => {
   try {
-    // Verificar si el usuario está autenticado
-    const respuesta = await usuarioAutorizado(req.cookies.token, req);
-    
-    if (respuesta.status !== 200) {
-      return res.status(400).json({ error: "Usuario no autorizado" });
-    }
+    // Obtener el ID del usuario desde los parámetros de la URL
+    const { usuarioId } = req.params;
 
-    // Obtener el ID del usuario desde el token
-    const usuarioId = req.usuario.id;
+    // Validar que usuarioId esté presente
+    if (!usuarioId) {
+      return res.status(400).json({ error: "El ID del usuario es requerido" });
+    }
 
     // Buscar medicamentos asociados a este usuario
     const medicamentos = await Medicamento.find({ usuarioId });
@@ -204,16 +199,21 @@ router.get("/medicamentosUsuario", async (req, res) => {
   }
 });
 
-router.get("/compartimentosOcupados", async (req, res) => {
+// Ruta para obtener compartimentos ocupados de un usuario específico
+router.get("/compartimentosOcupados/:usuarioId", async (req, res) => {
   try {
-    const respuesta = await usuarioAutorizado(req.cookies.token, req);
-    if (respuesta.status !== 200) {
-      return res.status(400).json({ error: "Usuario no autorizado" });
+    // Obtener el ID del usuario desde los parámetros de la URL
+    const { usuarioId } = req.params;
+
+    // Validar que usuarioId esté presente
+    if (!usuarioId) {
+      return res.status(400).json({ error: "El ID del usuario es requerido" });
     }
 
-    const usuarioId = req.usuario.id;
+    // Buscar medicamentos del usuario
     const medicamentos = await Medicamento.find({ usuarioId });
 
+    // Extraer los compartimentos ocupados
     const compartimentosOcupados = medicamentos.map(m => m.compartimiento);
 
     res.status(200).json({ compartimentosOcupados });
